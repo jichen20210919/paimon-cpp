@@ -1,0 +1,143 @@
+/*
+ * Copyright 2024-present Alibaba Inc.
+ *
+ * Licensed under the Apache License, Version 2.0 (the "License");
+ * you may not use this file except in compliance with the License.
+ * You may obtain a copy of the License at
+ *
+ *   http://www.apache.org/licenses/LICENSE-2.0
+ *
+ * Unless required by applicable law or agreed to in writing, software
+ * distributed under the License is distributed on an "AS IS" BASIS,
+ * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+ * See the License for the specific language governing permissions and
+ * limitations under the License.
+ */
+
+#include "paimon/common/data/data_define.h"
+
+#include "arrow/api.h"
+#include "arrow/array/array_base.h"
+#include "arrow/array/array_binary.h"
+#include "arrow/ipc/json_simple.h"
+#include "gtest/gtest.h"
+#include "paimon/common/data/binary_array.h"
+#include "paimon/common/data/binary_row.h"
+#include "paimon/common/data/binary_string.h"
+#include "paimon/common/utils/decimal_utils.h"
+#include "paimon/data/decimal.h"
+#include "paimon/data/timestamp.h"
+#include "paimon/memory/bytes.h"
+#include "paimon/memory/memory_pool.h"
+
+namespace paimon::test {
+
+// Test case: IsVariantNull should return true for NullType
+TEST(DataDefineTest, IsVariantNullReturnsTrueForNull) {
+    VariantType null_variant = NullType{};
+    ASSERT_TRUE(DataDefine::IsVariantNull(null_variant));
+}
+
+// Test case: IsVariantNull should return false for non-NullType variants
+TEST(DataDefineTest, IsVariantNullReturnsFalseForNonNullTypes) {
+    VariantType non_null_variant = 42;  // Example with int
+    ASSERT_FALSE(DataDefine::IsVariantNull(non_null_variant));
+
+    non_null_variant = true;  // Example with bool
+    ASSERT_FALSE(DataDefine::IsVariantNull(non_null_variant));
+}
+
+// Test case: GetVariantValue should return valid value for matched types
+TEST(DataDefineTest, GetVariantValue) {
+    {
+        VariantType int_variant = 42;  // Variant holding an int
+        const auto int_value = DataDefine::GetVariantValue<int32_t>(int_variant);
+        ASSERT_EQ(int_value, 42);
+    }
+    {
+        VariantType bool_variant = true;  // Variant holding a bool
+        const bool bool_value = DataDefine::GetVariantValue<bool>(bool_variant);
+        ASSERT_EQ(bool_value, true);
+    }
+    {
+        auto array = std::dynamic_pointer_cast<arrow::StringArray>(
+            arrow::ipc::internal::json::ArrayFromJSON(arrow::utf8(), R"(["abc", "def", "hello"])")
+                .ValueOrDie());
+        VariantType view_variant = array->GetView(2);  // Variant holding a StringView
+        const auto view_value = DataDefine::GetVariantValue<std::string_view>(view_variant);
+        ASSERT_EQ(std::string(view_value), "hello");
+        ASSERT_EQ(DataDefine::VariantValueToString(view_variant), "hello");
+    }
+}
+
+// Test case: GetVariantValue should return valid value for matching types
+TEST(DataDefineTest, GetVariantValueReturnsPointerForMatchingType) {}
+
+// Test case: VariantValueToString should handle NullType
+TEST(DataDefineTest, VariantValueToStringReturnsStringForNullType) {
+    VariantType null_variant = NullType{};
+    ASSERT_EQ(DataDefine::VariantValueToString(null_variant), "null");
+}
+
+// Test case: VariantValueToString should handle bool
+TEST(DataDefineTest, VariantValueToStringReturnsStringForBool) {
+    VariantType bool_variant = true;
+    ASSERT_EQ(DataDefine::VariantValueToString(bool_variant), "true");
+
+    bool_variant = false;
+    ASSERT_EQ(DataDefine::VariantValueToString(bool_variant), "false");
+}
+
+// Test case: VariantValueToString should handle integer types
+TEST(DataDefineTest, VariantValueToStringReturnsStringForInt) {
+    VariantType int_variant = 42;
+    ASSERT_EQ(DataDefine::VariantValueToString(int_variant), "42");
+}
+
+// Test case: VariantValueToString should handle string data (BinaryString)
+TEST(DataDefineTest, VariantValueToStringReturnsStringForBinaryString) {
+    auto pool = GetDefaultPool();
+    auto binary_str = BinaryString::FromString("Hello, world!", pool.get());
+    VariantType binary_variant = binary_str;
+    ASSERT_EQ(DataDefine::VariantValueToString(binary_variant), "Hello, world!");
+}
+
+// Test case: VariantValueToString should handle shared_ptr<Bytes>
+TEST(DataDefineTest, VariantValueToStringReturnsStringForSharedPtrBytes) {
+    auto pool = GetDefaultPool();
+    std::shared_ptr<Bytes> bytes_ptr = Bytes::AllocateBytes("abc", pool.get());
+    VariantType bytes_variant = bytes_ptr;
+    ASSERT_EQ(DataDefine::VariantValueToString(bytes_variant), "abc");
+}
+
+// Test case: VariantValueToString should handle Timestamp
+TEST(DataDefineTest, VariantValueToStringReturnsStringForTimestamp) {
+    auto timestamp =
+        Timestamp(/*millisecond=*/1622520000000l, /*nano_of_millisecond=*/0);  // A timestamp value
+    VariantType timestamp_variant = timestamp;
+    ASSERT_EQ(DataDefine::VariantValueToString(timestamp_variant), timestamp.ToString());
+}
+
+// Test case: VariantValueToString should handle Decimal
+TEST(DataDefineTest, VariantValueToStringReturnsStringForDecimal) {
+    Decimal decimal(38, 38, DecimalUtils::StrToInt128("12345678998765432145678").value());
+    VariantType decimal_variant = decimal;
+    ASSERT_EQ(DataDefine::VariantValueToString(decimal_variant), decimal.ToString());
+}
+
+// Test case: VariantValueToString should handle shared_ptr<InternalRow> (mocking with a string)
+TEST(DataDefineTest, VariantValueToStringReturnsStringForInternalRow) {
+    std::shared_ptr<InternalRow> row_ptr = std::make_shared<BinaryRow>(0);
+    VariantType row_variant = row_ptr;
+    ASSERT_EQ(DataDefine::VariantValueToString(row_variant), "row");
+}
+
+// Test case: VariantValueToString should handle shared_ptr<InternalArray> (mocking with a string)
+TEST(DataDefineTest, VariantValueToStringReturnsStringForInternalArray) {
+    auto pool = GetDefaultPool();
+    std::shared_ptr<InternalArray> array_ptr = std::make_shared<BinaryArray>();
+    VariantType array_variant = array_ptr;
+    ASSERT_EQ(DataDefine::VariantValueToString(array_variant), "array");
+}
+
+}  // namespace paimon::test
