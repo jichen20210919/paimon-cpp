@@ -172,7 +172,8 @@ Result<std::unique_ptr<BatchReader>> DataEvolutionSplitRead::InnerCreateReader(
     PAIMON_ASSIGN_OR_RAISE(
         std::unique_ptr<BatchReader> batch_reader,
         ApplyPredicateFilterIfNeeded(std::move(concat_batch_reader), context_->GetPredicate()));
-    return std::make_unique<CompleteRowKindBatchReader>(std::move(batch_reader), pool_);
+    // return CompleteRowKindBatchReader>(std::move(batch_reader), pool_);
+    return batch_reader;
 }
 Result<std::unique_ptr<BatchReader>> DataEvolutionSplitRead::ApplyIndexAndDvReaderIfNeeded(
     std::unique_ptr<FileBatchReader>&& file_reader, const std::shared_ptr<DataFileMeta>& file,

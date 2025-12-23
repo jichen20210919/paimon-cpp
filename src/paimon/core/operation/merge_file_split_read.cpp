@@ -146,7 +146,8 @@ Result<std::unique_ptr<BatchReader>> MergeFileSplitRead::CreateReader(
     } else {
         PAIMON_ASSIGN_OR_RAISE(batch_reader, CreateMergeReader(data_split, data_file_path_factory));
     }
-    return std::make_unique<CompleteRowKindBatchReader>(std::move(batch_reader), pool_);
+    // return std::make_unique<CompleteRowKindBatchReader>(std::move(batch_reader), pool_);
+    return batch_reader;
 }
 
 Result<std::unique_ptr<BatchReader>> MergeFileSplitRead::ApplyIndexAndDvReaderIfNeeded(

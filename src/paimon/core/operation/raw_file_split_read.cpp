@@ -79,7 +79,8 @@ Result<std::unique_ptr<BatchReader>> RawFileSplitRead::CreateReader(
         std::make_unique<ConcatBatchReader>(std::move(raw_file_readers), pool_);
     PAIMON_ASSIGN_OR_RAISE(std::unique_ptr<BatchReader> batch_reader,
                            ApplyPredicateFilterIfNeeded(std::move(concat_batch_reader), predicate));
-    return std::make_unique<CompleteRowKindBatchReader>(std::move(batch_reader), pool_);
+    ///return std::make_unique<CompleteRowKindBatchReader>(std::move(batch_reader), pool_);
+    return batch_reader;
 }
 
 Result<bool> RawFileSplitRead::Match(const std::shared_ptr<Split>& split,
