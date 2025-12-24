@@ -990,13 +990,169 @@ macro(build_glog)
     add_dependencies(glog glog_ep)
 endmacro()
 
+
+#use BUNDLED by default
+set(PAIMON_ACTUAL_DEPENDENCY_SOURCE "AUTO")
+
+macro(build_dependency DEPENDENCY_NAME)
+  if("${DEPENDENCY_NAME}" STREQUAL "fmt")
+    build_fmt()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "RapidJSON")
+    build_rapidjson()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "snappy")
+    build_snappy()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "zstd")
+    build_zstd()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "zlib")
+    build_zlib()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "lz4")
+    build_lz4()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "arrow")
+    build_arrow()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "tbb")
+    build_tbb()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "glog")
+    build_glog()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "avro")
+    build_avro()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "protobuf")
+    build_protobuf()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "orc")
+    build_orc()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "jindosdk_c")
+    build_jindosdk_c()
+  elseif("${DEPENDENCY_NAME}" STREQUAL "jindosdk_nextarch")
+    build_jindosdk_nextarch()
+  else()
+    message(FATAL_ERROR "Unknown thirdparty dependency to build: ${DEPENDENCY_NAME}")
+  endif()
+endmacro()
+
+set(PAIMON_THIRDPARTY_DEPENDENCIES
+fmt
+rapidjson
+snappy
+zstd
+zlib
+lz4
+arrow
+tbb
+glog
+)
+
+if(PAIMON_ENABLE_AVRO)
+    list(APPEND PAIMON_THIRDPARTY_DEPENDENCIES
+        "avro"
+    )
+endif()
+
+if(PAIMON_ENABLE_ORC)
+    list(APPEND PAIMON_THIRDPARTY_DEPENDENCIES
+    "protobuf"
+    "orc"
+    )
+endif()
+if(PAIMON_ENABLE_JINDO)
+    list(APPEND PAIMON_THIRDPARTY_DEPENDENCIES
+    "jindosdk_c"
+    "jindosdk_nextarch"
+    )
+endif()
+
+# For each dependency, set dependency source to global default, if unset
+foreach(DEPENDENCY ${ARROW_THIRDPARTY_DEPENDENCIES})
+  if("${${DEPENDENCY}_SOURCE}" STREQUAL "")
+    set(${DEPENDENCY}_SOURCE ${PAIMON_ACTUAL_DEPENDENCY_SOURCE})
+  endif()
+endforeach()
+
+function(provide_cmake_module MODULE_NAME PAIMON_CMAKE_PACKAGE_NAME)
+  set(module "${CMAKE_SOURCE_DIR}/cmake_modules/${MODULE_NAME}.cmake")
+  if(EXISTS "${module}")
+    message(STATUS "Providing CMake module for ${MODULE_NAME} as part of ${PAIMON_CMAKE_PACKAGE_NAME} CMake package"
+    )
+    install(FILES "${module}"
+            DESTINATION "${PAIMON_CMAKE_DIR}/${PAIMON_CMAKE_PACKAGE_NAME}")
+  endif()
+endfunction()
+
+# Find modules are needed by the consumer in case of a static build, or if the
+# linkage is PUBLIC or INTERFACE.
+function(provide_find_module PACKAGE_NAME PAIMON_CMAKE_PACKAGE_NAME)
+  provide_cmake_module("Find${PACKAGE_NAME}" ${PAIMON_CMAKE_PACKAGE_NAME})
+endfunction()
+
+macro(resolve_dependency DEPENDENCY_NAME)
+  set(options)
+  set(one_value_args
+      PAIMON_CMAKE_PACKAGE_NAME
+      ARROW_PC_PACKAGE_NAME
+      FORCE_ANY_NEWER_VERSION
+      HAVE_ALT
+      IS_RUNTIME_DEPENDENCY
+      REQUIRED_VERSION
+      USE_CONFIG)
+  set(multi_value_args COMPONENTS PC_PACKAGE_NAMES)
+  cmake_parse_arguments(ARG
+                        "${options}"
+                        "${one_value_args}"
+                        "${multi_value_args}"
+                        ${ARGN})
+  if(ARG_UNPARSED_ARGUMENTS)
+    message(SEND_ERROR "Error: unrecognized arguments: ${ARG_UNPARSED_ARGUMENTS}")
+  endif()
+  if("${ARG_IS_RUNTIME_DEPENDENCY}" STREQUAL "")
+    set(ARG_IS_RUNTIME_DEPENDENCY TRUE)
+  endif()
+
+  if(ARG_HAVE_ALT)
+    set(PACKAGE_NAME "${DEPENDENCY_NAME}Alt")
+  else()
+    set(PACKAGE_NAME ${DEPENDENCY_NAME})
+  endif()
+  set(FIND_PACKAGE_ARGUMENTS ${PACKAGE_NAME})
+  if(ARG_REQUIRED_VERSION AND NOT ARG_FORCE_ANY_NEWER_VERSION)
+    list(APPEND FIND_PACKAGE_ARGUMENTS ${ARG_REQUIRED_VERSION})
+  endif()
+  if(ARG_USE_CONFIG)
+    list(APPEND FIND_PACKAGE_ARGUMENTS CONFIG)
+  endif()
+  if(ARG_COMPONENTS)
+    list(APPEND FIND_PACKAGE_ARGUMENTS COMPONENTS ${ARG_COMPONENTS})
+  endif()
+find_package(${FIND_PACKAGE_ARGUMENTS})
+set(COMPATIBLE ${${PACKAGE_NAME}_FOUND})
+if(COMPATIBLE
+    AND ARG_FORCE_ANY_NEWER_VERSION
+    AND ARG_REQUIRED_VERSION)
+    if(${${PACKAGE_NAME}_VERSION} VERSION_LESS ${ARG_REQUIRED_VERSION})
+    message(DEBUG "Couldn't find ${DEPENDENCY_NAME} >= ${ARG_REQUIRED_VERSION}")
+    set(COMPATIBLE FALSE)
+    endif()
+endif()
+endmacro()
+
 build_fmt()
 build_rapidjson()
-build_snappy()
+# build_snappy()
+set(NATIVE_TOOLCHAIN_HOME "/home/jichen/work/cloudera/native-toolchain/build")
+set(SNAPPY_STATIC_LIB ${NATIVE_TOOLCHAIN_HOME}/snappy-1.1.8/lib/libsnappy.a)
+set(SNAPPY_INCLUDE_DIR ${NATIVE_TOOLCHAIN_HOME}/snappy-1.1.8/include)
+include_directories(SYSTEM ${SNAPPY_INCLUDE_DIR})
+add_library(snappy STATIC IMPORTED)
+set_target_properties(snappy PROPERTIES IMPORTED_LOCATION ${SNAPPY_STATIC_LIB})
+target_include_directories(snappy INTERFACE ${SNAPPY_INCLUDE_DIR})
 build_zstd()
 build_zlib()
 build_lz4()
 build_arrow()
+# resolve_dependency(arrow
+# REQUIRED_VERSION
+# ${PAIMON_TBB_BUILD_VERSION}
+# COMPONENTS
+# "arrow"
+# IS_RUNTIME_DEPENDENCY
+# FALSE)
 build_tbb()
 build_glog()
 
@@ -1011,3 +1167,112 @@ if(PAIMON_ENABLE_JINDO)
     build_jindosdk_c()
     build_jindosdk_nextarch()
 endif()
+
+# resolve_dependency(fmt
+# REQUIRED_VERSION
+# ${PAIMON_FMT_BUILD_VERSION}
+# COMPONENTS
+# "fmt"
+# IS_RUNTIME_DEPENDENCY
+# # libarrow.so doesn't depend on libboost*.
+# FALSE)
+# # build_fmt()
+# resolve_dependency(rapidjson
+# REQUIRED_VERSION
+# ${PAIMON_RAPIDJSON_BUILD_VERSION}
+# COMPONENTS
+# "fmt"
+# IS_RUNTIME_DEPENDENCY
+# # libarrow.so doesn't depend on libboost*.
+# FALSE)
+# # build_rapidjson()
+# resolve_dependency(snappy
+# REQUIRED_VERSION
+# ${PAIMON_RAPIDJSON_BUILD_VERSION}
+# COMPONENTS
+# "fmt"
+# IS_RUNTIME_DEPENDENCY
+# FALSE)
+# #build_snappy()
+# resolve_dependency(zstd
+# REQUIRED_VERSION
+# ${PAIMON_RAPIDJSON_BUILD_VERSION}
+# COMPONENTS
+# "zstd"
+# IS_RUNTIME_DEPENDENCY
+# FALSE)
+# # build_zstd()
+# resolve_dependency(zlib
+# REQUIRED_VERSION
+# ${PAIMON_ZLIB_BUILD_VERSION}
+# COMPONENTS
+# "zlib"
+# IS_RUNTIME_DEPENDENCY
+# FALSE)
+# # build_zlib()
+# resolve_dependency(lz4
+# REQUIRED_VERSION
+# ${PAIMON_LZ4_BUILD_VERSION}
+# COMPONENTS
+# "lz4"
+# IS_RUNTIME_DEPENDENCY
+# FALSE)
+# #build_lz4()
+# resolve_dependency(arrow
+# REQUIRED_VERSION
+# ${PAIMON_ARROW_BUILD_VERSION}
+# COMPONENTS
+# "arrow"
+# IS_RUNTIME_DEPENDENCY
+# FALSE)
+# # build_arrow()
+# resolve_dependency(tbb
+# REQUIRED_VERSION
+# ${PAIMON_TBB_BUILD_VERSION}
+# COMPONENTS
+# "tbb"
+# IS_RUNTIME_DEPENDENCY
+# FALSE)
+# # build_tbb()
+
+# resolve_dependency(glog
+# REQUIRED_VERSION
+# ${PAIMON_GLOG_BUILD_VERSION}
+# COMPONENTS
+# "glog"
+# IS_RUNTIME_DEPENDENCY
+# FALSE)
+# # build_glog()
+
+# if(PAIMON_ENABLE_AVRO)
+#     resolve_dependency(avro
+#     REQUIRED_VERSION
+#     ${PAIMON_AVRO_BUILD_VERSION}
+#     COMPONENTS
+#     "avro"
+#     IS_RUNTIME_DEPENDENCY
+#     FALSE)
+#     # build_avro()
+# endif()
+# if(PAIMON_ENABLE_ORC)
+#     resolve_dependency(protobuf
+#     REQUIRED_VERSION
+#     ${PAIMON_PTOROBUF_BUILD_VERSION}
+#     COMPONENTS
+#     "protobuf"
+#     IS_RUNTIME_DEPENDENCY
+#     FALSE)
+#     resolve_dependency(orc
+#     REQUIRED_VERSION
+#     ${PAIMON_ORC_BUILD_VERSION}
+#     COMPONENTS
+#     "orc"
+#     IS_RUNTIME_DEPENDENCY
+#     FALSE)
+#     # build_protobuf()
+#     # build_orc()
+# endif()
+# if(PAIMON_ENABLE_JINDO)
+#     build_jindosdk_c()
+#     build_jindosdk_nextarch()
+# endif()
